@@ -1,13 +1,8 @@
-name: Scan Image from ECR
+name: Scan ECR Image
 
 on:
   repository_dispatch:
-    types:
-      - scan-ecr-image
-
-permissions:
-  id-token: write
-  contents: read
+    types: [scan-ecr-image]
 
 env:
   AWS_REGION: us-east-1
@@ -19,10 +14,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Configure AWS Credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::899867382718:role/samplegithubactionsrole
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -32,7 +31,7 @@ jobs:
       - name: Pull Image
         run: |
           docker pull \
-          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
+            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
 
       - name: Scan with Trivy
         uses: aquasecurity/trivy-action@master
@@ -49,7 +48,3 @@ jobs:
         run: |
           grype \
           ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
-
-      - name: Validation Complete
-        run: |
-          echo "Image validation completed successfully."
