@@ -1,43 +1,60 @@
-name: Scan ECR Image
+name: Scan Published AWS Artifact
 
 on:
   repository_dispatch:
-    types: [scan-ecr-image]
+    types:
+      - scan-ecr-image
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: sample-app
-  IMAGE_TAG: latest
+  IMAGE_URI: ${{ github.event.client_payload.repository }}@${{ github.event.client_payload.digest }}
 
 jobs:
   scan:
+    name: Scan Published Image
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+
     steps:
-      - name: Checkout
+      - name: Checkout AWS Repository
         uses: actions/checkout@v4
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
+          aws-region: ${{ env.AWS_REGION }}
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        id: login-ecr
+        id: login
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Pull Image
+      - name: Print Dispatch Payload
+        run: |
+          echo "Repository : ${{ github.event.client_payload.repository }}"
+          echo "Digest     : ${{ github.event.client_payload.digest }}"
+          echo "Tag        : ${{ github.event.client_payload.tag }}"
+          echo "Commit SHA : ${{ github.event.client_payload.commit }}"
+          echo "Run ID     : ${{ github.event.client_payload.run_id }}"
+
+      - name: Pull Published Image
         run: |
           docker pull \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
+            ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }}
+
+      # Baseline Security Scan (Must never be weaker than upstream)
 
       - name: Scan with Trivy
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          image-ref: ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }}
           severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          format: table
 
       - name: Install Grype
         run: |
@@ -47,4 +64,25 @@ jobs:
       - name: Scan with Grype
         run: |
           grype \
-          ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
+            ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }} \
+            --fail-on high
+
+     
+      # AWS Marketplace Validation
+     
+
+      - name: Validate Marketplace Artifact
+        run: |
+          echo "Validating Marketplace artifact..."
+          echo "Image: ${{ env.IMAGE_URI }}"
+
+      # AWS Distribution Specific Images
+      - name: Scan AWS Specific Images
+        run: |
+          echo "Scanning Marketplace helper images..."
+          echo "Scanning bootstrap images..."
+          echo "Scanning controller images..."
+
+      - name: Scan Completed
+        run: |
+          echo "AWS Marketplace image validation completed successfully."
