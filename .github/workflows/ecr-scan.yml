@@ -45,16 +45,13 @@ jobs:
           docker pull \
             ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }}
 
-      # Baseline Security Scan (Must never be weaker than upstream)
-
-      - name: Scan with Trivy
-        uses: aquasecurity/trivy-action@0.33.1
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }}
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
-          format: table
 
       - name: Install Grype
         run: |
@@ -67,16 +64,15 @@ jobs:
             ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }} \
             --fail-on high
 
-     
-      # AWS Marketplace Validation
-     
+
 
       - name: Validate Marketplace Artifact
         run: |
           echo "Validating Marketplace artifact..."
           echo "Image: ${{ env.IMAGE_URI }}"
 
-      # AWS Distribution Specific Images
+
+
       - name: Scan AWS Specific Images
         run: |
           echo "Scanning Marketplace helper images..."
