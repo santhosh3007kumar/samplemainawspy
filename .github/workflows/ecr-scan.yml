@@ -46,7 +46,7 @@ jobs:
             ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }}
 
       - name: Trivy Scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.34.2
         with:
           image-ref: ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }}
           severity: HIGH,CRITICAL
