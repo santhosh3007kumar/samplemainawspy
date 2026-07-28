@@ -5,6 +5,10 @@ on:
     types:
       - scan-ecr-image
 
+permissions:
+  id-token: write
+  contents: read
+
 env:
   AWS_REGION: us-east-1
   IMAGE_URI: ${{ github.event.client_payload.repository }}@${{ github.event.client_payload.digest }}
@@ -14,24 +18,23 @@ jobs:
     name: Scan Published Image
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-
     steps:
       - name: Checkout AWS Repository
         uses: actions/checkout@v4
 
+      # Configure AWS using GitHub OIDC
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
+      # Login to Amazon ECR
       - name: Login to Amazon ECR
         id: login
         uses: aws-actions/amazon-ecr-login@v2
 
+      # Print Repository Dispatch Payload
       - name: Print Dispatch Payload
         run: |
           echo "Repository : ${{ github.event.client_payload.repository }}"
@@ -40,45 +43,94 @@ jobs:
           echo "Commit SHA : ${{ github.event.client_payload.commit }}"
           echo "Run ID     : ${{ github.event.client_payload.run_id }}"
 
+      # Pull Published Image
       - name: Pull Published Image
         run: |
           docker pull \
             ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }}
 
+      # -----------------------------
+      # Trivy Scan
+      # -----------------------------
       - name: Trivy Scan
-        uses: aquasecurity/trivy-action@master
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }}
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+          format: table
+          output: trivy-report.txt
 
+      - name: Upload Trivy Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.txt
+          retention-days: 30
+
+      # -----------------------------
+      # Install Grype
+      # -----------------------------
       - name: Install Grype
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh
           sudo mv ./bin/grype /usr/local/bin
 
-      - name: Scan with Grype
+      # -----------------------------
+      # Grype Scan
+      # -----------------------------
+      - name: Grype Scan
+        id: grype
+        continue-on-error: true
         run: |
           grype \
             ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }} \
-            --fail-on high
+            --fail-on high \
+            -o table \
+            > grype-report.txt
 
+      - name: Upload Grype Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-report
+          path: grype-report.txt
+          retention-days: 30
 
-
+      # -----------------------------
+      # Marketplace Validation
+      # -----------------------------
       - name: Validate Marketplace Artifact
         run: |
           echo "Validating Marketplace artifact..."
           echo "Image: ${{ env.IMAGE_URI }}"
 
-
-
+      # -----------------------------
+      # AWS Specific Images
+      # -----------------------------
       - name: Scan AWS Specific Images
         run: |
           echo "Scanning Marketplace helper images..."
           echo "Scanning bootstrap images..."
           echo "Scanning controller images..."
 
+      # -----------------------------
+      # Enforce Security Policy
+      # -----------------------------
+      - name: Enforce Security Policy
+        if: steps.trivy.outcome == 'failure' || steps.grype.outcome == 'failure'
+        run: |
+          echo "High or Critical vulnerabilities detected."
+          exit 1
+
+      # -----------------------------
+      # Success
+      # -----------------------------
       - name: Scan Completed
+        if: success()
         run: |
           echo "AWS Marketplace image validation completed successfully."
