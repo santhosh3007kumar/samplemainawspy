@@ -64,18 +64,31 @@ jobs:
           docker pull \
             ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }}
 
-      # -----------------------------
+      - name: Install yq
+        uses: mikefarah/yq@v4
+
+      - name: Load Security Policy
+        id: policy
+        run: |
+          POLICY=.github/security/baseline-policy.yaml
+
+          echo "severity=$(yq '.policy.severity | join(",")' $POLICY)" >> $GITHUB_OUTPUT
+          echo "ignore_unfixed=$(yq '.policy.ignore_unfixed' $POLICY)" >> $GITHUB_OUTPUT
+          echo "trivy_allowlist=$(yq '.scanners.trivy.allowlist' $POLICY)" >> $GITHUB_OUTPUT
+          echo "grype_allowlist=$(yq '.scanners.grype.allowlist' $POLICY)" >> $GITHUB_OUTPUT      
+
       # Trivy Scan
-      # -----------------------------
+ 
       - name: Trivy Scan
         id: trivy
         continue-on-error: true
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ steps.login.outputs.registry }}/${{ env.IMAGE_URI }}
-          severity: HIGH,CRITICAL
+          severity: ${{ steps.policy.outputs.severity }}
           exit-code: "1"
-          ignore-unfixed: true
+          ignore-unfixed: ${{ steps.policy.outputs.ignore_unfixed }}
+          ignore-file: ${{ steps.policy.outputs.trivy_allowlist }}
           format: table
           output: trivy-report.txt
 
@@ -87,17 +100,15 @@ jobs:
           path: trivy-report.txt
           retention-days: 30
 
-      # -----------------------------
       # Install Grype
-      # -----------------------------
+   
       - name: Install Grype
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh
           sudo mv ./bin/grype /usr/local/bin
 
-      # -----------------------------
       # Grype Scan
-      # -----------------------------
+   
       - name: Grype Scan
         id: grype
         continue-on-error: true

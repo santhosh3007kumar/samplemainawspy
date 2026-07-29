@@ -1,0 +1,18 @@
+version: "1.0"
+
+repository: veil-aws
+role: downstream
+
+inherits:
+  repository: veil-proxy
+
+policy:
+  severity:
+    - MEDIUM
+    - HIGH
+    - CRITICAL
+
+ignore_unfixed: true
+
+publishing:
+  marketplace: true
